@@ -297,13 +297,45 @@
       { name: 'An-Nas', arabic: 'الناس', ayahs: 6 },
     ];
 
+    // localStorage keys
+    const STORAGE_KEYS = {
+      SETTINGS: 'tajweed_settings',
+      HISTORY: 'tajweed_history',
+      RECORDINGS: 'tajweed_recordings'
+    };
+
+    // Load from localStorage
+    const loadFromStorage = (key, defaultValue) => {
+      try {
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : defaultValue;
+      } catch (e) {
+        console.log('Error loading from storage:', e);
+        return defaultValue;
+      }
+    };
+
+    // Save to localStorage
+    const saveToStorage = (key, value) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        console.log('Error saving to storage:', e);
+      }
+    };
+
     function TajweedTrainer() {
-      const [surahStart, setSurahStart] = useState(1);
-      const [surahEnd, setSurahEnd] = useState(1);
-      const [ayahStart, setAyahStart] = useState(1);
-      const [ayahEnd, setAyahEnd] = useState(1);
+      // Load saved settings
+      const savedSettings = loadFromStorage(STORAGE_KEYS.SETTINGS, {});
+      const savedHistory = loadFromStorage(STORAGE_KEYS.HISTORY, []);
+      const savedRecordings = loadFromStorage(STORAGE_KEYS.RECORDINGS, []);
+      
+      const [surahStart, setSurahStart] = useState(savedSettings.surahStart || 1);
+      const [surahEnd, setSurahEnd] = useState(savedSettings.surahEnd || 1);
+      const [ayahStart, setAyahStart] = useState(savedSettings.ayahStart || 1);
+      const [ayahEnd, setAyahEnd] = useState(savedSettings.ayahEnd || 1);
       const [arabicText, setArabicText] = useState('');
-      const [reciter, setReciter] = useState('yasser_dosari');
+      const [reciter, setReciter] = useState(savedSettings.reciter || 'yasser_dosari');
       
       const [extractedRules, setExtractedRules] = useState(null);
       const [isFetchingTajweed, setIsFetchingTajweed] = useState(false);
@@ -312,16 +344,16 @@
       const [isRecording, setIsRecording] = useState(false);
       const [recordingTime, setRecordingTime] = useState(0);
       const [audioLevel, setAudioLevel] = useState(0);
-      const [userRecordings, setUserRecordings] = useState([]);
+      const [userRecordings, setUserRecordings] = useState(savedRecordings);
       
       const [isPlayingReference, setIsPlayingReference] = useState(false);
-      const [playbackSpeed, setPlaybackSpeed] = useState(0.75);
-      const [loopMode, setLoopMode] = useState(false);
-      const [includeBismillah, setIncludeBismillah] = useState(true);
+      const [playbackSpeed, setPlaybackSpeed] = useState(savedSettings.playbackSpeed || 0.75);
+      const [loopMode, setLoopMode] = useState(savedSettings.loopMode || false);
+      const [includeBismillah, setIncludeBismillah] = useState(savedSettings.includeBismillah !== false);
       
       const [feedback, setFeedback] = useState(null);
       const [error, setError] = useState(null);
-      const [sessionHistory, setSessionHistory] = useState([]);
+      const [sessionHistory, setSessionHistory] = useState(savedHistory);
       const [showLegend, setShowLegend] = useState(false);
       const [selectedRule, setSelectedRule] = useState(null);
       
@@ -337,12 +369,36 @@
       
       // Display controls
       const [isFullscreen, setIsFullscreen] = useState(false);
-      const [fontSize, setFontSize] = useState(32);
-      const [verseStep, setVerseStep] = useState(5);
+      const [fontSize, setFontSize] = useState(savedSettings.fontSize || 32);
+      const [verseStep, setVerseStep] = useState(savedSettings.verseStep || 5);
       const [currentPage, setCurrentPage] = useState(0);
       const [allVersesHtml, setAllVersesHtml] = useState([]); // Store each verse's HTML separately
-      const [lineHeight, setLineHeight] = useState(2.0);
-      const [navStep, setNavStep] = useState(5); // How many verses to jump when navigating
+      const [lineHeight, setLineHeight] = useState(savedSettings.lineHeight || 2.0);
+      const [navStep, setNavStep] = useState(savedSettings.navStep || 5); // How many verses to jump when navigating
+      
+      // Save settings whenever they change
+      React.useEffect(() => {
+        saveToStorage(STORAGE_KEYS.SETTINGS, {
+          surahStart, surahEnd, ayahStart, ayahEnd,
+          reciter, playbackSpeed, loopMode, includeBismillah,
+          fontSize, verseStep, lineHeight, navStep
+        });
+      }, [surahStart, surahEnd, ayahStart, ayahEnd, reciter, playbackSpeed, loopMode, includeBismillah, fontSize, verseStep, lineHeight, navStep]);
+      
+      // Save session history whenever it changes
+      React.useEffect(() => {
+        saveToStorage(STORAGE_KEYS.HISTORY, sessionHistory);
+      }, [sessionHistory]);
+      
+      // Save recordings whenever they change (metadata only, URLs are blob URLs)
+      React.useEffect(() => {
+        // Filter out blob URLs (they don't persist) and save metadata
+        const persistableRecordings = userRecordings.map(r => ({
+          ...r,
+          url: r.dataUrl || null // Only save if we have a data URL
+        })).filter(r => r.url);
+        saveToStorage(STORAGE_KEYS.RECORDINGS, persistableRecordings);
+      }, [userRecordings]);
       
       // Navigate to next/previous verses
       const navigateVerses = (direction) => {
@@ -849,9 +905,39 @@
           mediaRecorderRef.current.onstop = () => {
             const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
             const url = URL.createObjectURL(blob);
-            const newRecording = { url, surahStart, surahEnd, ayahStart, ayahEnd, time: Date.now() };
-            setUserRecordings(prev => [...prev, newRecording]);
-            setLastRecordingSaved(Date.now());
+            
+            // Convert to data URL for persistence
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result;
+              const newRecording = { 
+                url, 
+                dataUrl, // For localStorage persistence
+                surahStart, 
+                surahEnd, 
+                ayahStart, 
+                ayahEnd, 
+                time: Date.now(),
+                size: blob.size
+              };
+              setUserRecordings(prev => {
+                // Limit to last 10 recordings to save space
+                const updated = [...prev, newRecording];
+                if (updated.length > 10) {
+                  // Revoke old blob URLs
+                  updated.slice(0, updated.length - 10).forEach(r => {
+                    if (r.url && r.url.startsWith('blob:')) {
+                      URL.revokeObjectURL(r.url);
+                    }
+                  });
+                  return updated.slice(-10);
+                }
+                return updated;
+              });
+              setLastRecordingSaved(Date.now());
+            };
+            reader.readAsDataURL(blob);
+            
             // Auto-clear the "saved" message after 5 seconds
             setTimeout(() => setLastRecordingSaved(null), 5000);
           };
@@ -1493,7 +1579,21 @@
                 {/* Recordings */}
                 {userRecordings.length > 0 && (
                   <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
-                    <div className="text-amber-800 text-base font-bold mb-2">🎧 Your Recordings ({userRecordings.length})</div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-amber-800 text-base font-bold">🎧 Your Recordings ({userRecordings.length}/10)</div>
+                      <button
+                        onClick={() => {
+                          if (confirm('Delete all recordings?')) {
+                            userRecordings.forEach(r => {
+                              if (r.url && r.url.startsWith('blob:')) URL.revokeObjectURL(r.url);
+                            });
+                            setUserRecordings([]);
+                          }
+                        }}
+                        className="text-red-500 text-xs hover:text-red-700"
+                      >🗑️ Clear All</button>
+                    </div>
+                    <p className="text-amber-700 text-xs mb-2">💾 Auto-saved to this device</p>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {userRecordings.slice().reverse().map((r, i) => {
                         const actualIndex = userRecordings.length - 1 - i;
@@ -1504,7 +1604,7 @@
                             className={`flex items-center gap-2 rounded-lg p-2 ${isPlaying ? 'bg-amber-500/30' : 'bg-white/70'}`}
                           >
                             <button
-                              onClick={() => isPlaying ? stopUserRecording() : playUserRecording(r.url, actualIndex)}
+                              onClick={() => isPlaying ? stopUserRecording() : playUserRecording(r.dataUrl || r.url, actualIndex)}
                               className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${
                                 isPlaying ? 'bg-orange-500 text-stone-800' : 'bg-amber-500 text-white'
                               }`}
@@ -1525,6 +1625,15 @@
                             {isPlaying && (
                               <div className="text-amber-700 text-xs animate-pulse">Playing...</div>
                             )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (r.url && r.url.startsWith('blob:')) URL.revokeObjectURL(r.url);
+                                setUserRecordings(prev => prev.filter((_, idx) => idx !== actualIndex));
+                              }}
+                              className="text-red-400 hover:text-red-600 text-sm px-2"
+                              title="Delete"
+                            >✕</button>
                           </div>
                         );
                       })}
@@ -1550,7 +1659,18 @@
                 {/* Session Progress */}
                 {sessionHistory.length > 0 && (
                   <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
-                    <div className="text-amber-800 text-base font-bold mb-2">Progress</div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-amber-800 text-base font-bold">Progress</div>
+                      <button
+                        onClick={() => {
+                          if (confirm('Clear all progress history?')) {
+                            setSessionHistory([]);
+                          }
+                        }}
+                        className="text-red-500 text-xs hover:text-red-700"
+                      >🗑️ Clear</button>
+                    </div>
+                    <p className="text-amber-700 text-xs mb-2">💾 Saved to this device</p>
                     <div className="flex flex-wrap gap-1">
                       {sessionHistory.slice(-15).map((s, i) => (
                         <div 
