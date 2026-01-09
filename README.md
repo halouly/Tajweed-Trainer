@@ -7,8 +7,28 @@ A free, browser-based Quran recitation practice tool with Al-Azhar Mushaf color-
 - 📖 **Al-Azhar 8-Color System** - Official Tajweed Mushaf color coding
 - 🎧 **Listen to Reciters** - Yasser Al-Dosari, Mishary Alafasy, Al-Husary, Al-Minshawi
 - 🎙️ **Record Yourself** - Practice and compare your recitation
+- 📊 **Audio Analysis** - Visual waveform comparison & timing feedback
+- ⭐ **Self-Rating** - Track your progress on each rule
 - ✅ **Self-Assessment Checklist** - Rule-by-rule verification
+- 💾 **Auto-Save** - Recordings & progress saved locally
 - 📱 **Mobile Friendly** - Works on phones and tablets
+
+## New! Analysis Features
+
+### Timing Analysis
+- Compare your recording duration to the reference
+- Get feedback if you're rushing or at good pace
+- Helps ensure proper Madd (elongation) lengths
+
+### Waveform Comparison
+- See visual representation of both recordings
+- Identify where elongations should occur
+- Compare your patterns to the reference
+
+### Guided Self-Assessment
+- Rate yourself 1-5 stars on each rule
+- Scores are saved for progress tracking
+- Focus on your weakest areas
 
 ## Color Legend
 
@@ -29,7 +49,16 @@ A free, browser-based Quran recitation practice tool with Al-Azhar Mushaf color-
 2. Click "Load Tajweed Rules"
 3. Listen to reference recitation
 4. Record yourself
-5. Use checklist to self-assess
+5. Click 📊 to analyze your recording
+6. Compare waveforms & rate yourself on each rule
+
+## Data Storage
+
+All data is stored locally in your browser:
+- Up to 10 recordings (auto-managed)
+- Your self-rating scores per rule
+- Session history and settings
+- **100% private** - nothing sent to any server
 
 ## Credits
 
