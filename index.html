@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tajweed Trainer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap');
+    .font-arabic { font-family: 'Amiri', serif; }
+    
+    /* Mobile-friendly touch targets */
+    @media (max-width: 768px) {
+      button, select, input { min-height: 44px; }
+      .mobile-text-lg { font-size: 1.1rem; }
+    }
+    
+    /* Smooth scrolling */
+    html { scroll-behavior: smooth; }
+    
+    /* Better touch scrolling */
+    .overflow-y-auto { -webkit-overflow-scrolling: touch; }
+    
+    /* Fullscreen on mobile */
+    .fullscreen-mobile {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 50;
+      background: white;
+      padding: 1rem;
+      overflow: auto;
+    }
+    
+    /* Hide scrollbar but keep functionality */
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef } = React;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AL-AZHAR MUSHAF - 8 COLORS (from official Tajweed Mushaf identification)
+    // ═══════════════════════════════════════════════════════════════════════
+    const COLORS = {
+      DARK_RED:   '#8B0000',  // مد لازم - 6 counts
+      BLOOD_RED:  '#B22222',  // مد واجب - 5 counts  
+      ORANGE_RED: '#CD5C5C',  // مد جائز - 2/4/6 counts
+      CUMIN_RED:  '#DC143C',  // مد طبيعي - 2 counts
+      GREEN:      '#228B22',  // غنة - nasalization
+      GRAY:       '#708090',  // ما لا يلفظ - silent
+      DARK_BLUE:  '#0000CD',  // تفخيم - emphatic (medium blue)
+      BLUE:       '#4169E1',  // قلقلة - echo
+    };
+
+    // Tafkheem letters (always heavy): خ ص ض غ ط ق ظ
+    const TAFKHEEM_LETTERS = 'خصضغطقظ';
+
+    const TAJWEED_COLORS = {
+      madd_lazim: {
+        color: COLORS.DARK_RED,
+        name: 'Madd Lazim',
+        arabic: 'مد لازم',
+        counts: 6,
+        description: 'Necessary prolongation - 6 counts',
+        howTo: 'Hold for exactly 6 counts'
+      },
+      madd_wajib: {
+        color: COLORS.BLOOD_RED,
+        name: 'Madd Wajib',
+        arabic: 'مد واجب',
+        counts: 5,
+        description: 'Obligatory prolongation - 5 counts',
+        howTo: 'Hold for 4-5 counts when madd meets hamza in same word'
+      },
+      madd_jaiz: {
+        color: COLORS.ORANGE_RED,
+        name: 'Madd Jaiz',
+        arabic: 'مد جائز',
+        counts: '2/4/6',
+        description: 'Permissible prolongation - 2, 4, or 6 counts',
+        howTo: 'Be consistent - pick 2, 4, or 6 and stick with it'
+      },
+      madd_tabii: {
+        color: COLORS.CUMIN_RED,
+        name: 'Madd Tabee\'i',
+        arabic: 'مد طبيعي',
+        counts: 2,
+        description: 'Normal prolongation - 2 counts',
+        howTo: 'Hold for exactly 2 counts'
+      },
+      ghunnah: {
+        color: COLORS.GREEN,
+        name: 'Ghunnah',
+        arabic: 'غنة',
+        counts: 2,
+        description: 'Nasalization - 2 counts through nose',
+        howTo: 'Let sound come through your nose for 2 counts'
+      },
+      silent: {
+        color: COLORS.GRAY,
+        name: 'Silent',
+        arabic: 'ما لا يلفظ',
+        counts: '-',
+        description: 'Letters not pronounced',
+        howTo: 'Skip these letters entirely'
+      },
+      tafkheem: {
+        color: COLORS.DARK_BLUE,
+        name: 'Tafkheem',
+        arabic: 'تفخيم',
+        counts: '-',
+        description: 'Heavy/emphatic pronunciation on خ ص ض غ ط ق ظ',
+        howTo: 'Make it thick and heavy - raise back of tongue'
+      },
+      qalqalah: {
+        color: COLORS.BLUE,
+        name: 'Qalqalah',
+        arabic: 'قلقلة',
+        counts: '-',
+        description: 'Echo on ق ط ب ج د with sukoon',
+        howTo: 'Add a slight bounce/echo after the letter'
+      }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // API CLASS → COLOR MAPPING
+    // These are the EXACT 15 classes returned by Quran.com API
+    // Mapped according to Al-Azhar Mushaf rules from screenshot
+    // ═══════════════════════════════════════════════════════════════════════
+    const TAJWEED_API_MAP = {
+      // RED - Madd (4 types)
+      'madda_necessary':    'madd_lazim',   // Dark red - 6 counts
+      'madda_obligatory':   'madd_wajib',   // Blood red - 5 counts
+      'madda_permissible':  'madd_jaiz',    // Orange red - 2/4/6 counts
+      'madda_normal':       'madd_tabii',   // Cumin red - 2 counts
+      
+      // GREEN - Ghunnah (all nasalization rules)
+      'ghunnah':            'ghunnah',      // Plain ghunnah
+      'idgham_ghunnah':     'ghunnah',      // Idgham WITH ghunnah = GREEN (has nasal)
+      'idgham_shafawi':     'ghunnah',      // Lip idgham = GREEN (has nasal)
+      'ikhafa':             'ghunnah',      // Ikhfa = GREEN
+      'ikhafa_shafawi':     'ghunnah',      // Lip ikhfa = GREEN
+      'iqlab':              'ghunnah',      // Iqlab = GREEN
+      
+      // GRAY - Silent (not pronounced)
+      'ham_wasl':           'silent',       // Hamzat al-wasl
+      'idgham_wo_ghunnah':  'silent',       // Idgham WITHOUT ghunnah = GRAY (no nasal)
+      'laam_shamsiyah':     'silent',       // Assimilated lam
+      'slnt':               'silent',       // Silent marker
+      
+      // BLUE - Qalqalah
+      'qalaqah':            'qalqalah',     // Note: API uses 'qalaqah' not 'qalqalah'
+    };
+
+    const COLOR_LEGEND = [
+      { color: COLORS.DARK_RED,   arabic: 'مد لازم',    name: 'Madd Lazim',    desc: '6 counts' },
+      { color: COLORS.BLOOD_RED,  arabic: 'مد واجب',    name: 'Madd Wajib',    desc: '5 counts' },
+      { color: COLORS.ORANGE_RED, arabic: 'مد جائز',    name: 'Madd Jaiz',     desc: '2/4/6 counts' },
+      { color: COLORS.CUMIN_RED,  arabic: 'مد طبيعي',   name: 'Madd Tabee\'i', desc: '2 counts' },
+      { color: COLORS.GREEN,      arabic: 'غنة',        name: 'Ghunnah',       desc: '2 counts nasal' },
+      { color: COLORS.GRAY,       arabic: 'ما لا يلفظ', name: 'Silent',        desc: 'not pronounced' },
+      { color: COLORS.DARK_BLUE,  arabic: 'تفخيم',      name: 'Tafkheem',      desc: 'خ ص ض غ ط ق ظ' },
+      { color: COLORS.BLUE,       arabic: 'قلقلة',      name: 'Qalqalah',      desc: 'ق ط ب ج د' },
+    ];
+
+    const RECITERS = {
+      yasser_dosari: { name: 'Yasser Al-Dosari', arabic: 'ياسر الدوسري', baseUrl: 'https://everyayah.com/data/Yasser_Ad-Dussary_128kbps' },
+      mishary: { name: 'Mishary Alafasy', arabic: 'مشاري العفاسي', baseUrl: 'https://everyayah.com/data/Alafasy_128kbps' },
+      husary: { name: 'Al-Husary', arabic: 'الحصري', baseUrl: 'https://everyayah.com/data/Husary_128kbps' },
+      minshawi_mujawwad: { name: 'Al-Minshawi (Mujawwad)', arabic: 'المنشاوي مجود', baseUrl: 'https://everyayah.com/data/Minshawy_Mujawwad_128kbps' },
+    };
+
+    const SURAH_DATA = [
+      null,
+      { name: 'Al-Fatiha', arabic: 'الفاتحة', ayahs: 7 },
+      { name: 'Al-Baqarah', arabic: 'البقرة', ayahs: 286 },
+      { name: 'Aal-Imran', arabic: 'آل عمران', ayahs: 200 },
+      { name: 'An-Nisa', arabic: 'النساء', ayahs: 176 },
+      { name: 'Al-Maidah', arabic: 'المائدة', ayahs: 120 },
+      { name: 'Al-Anam', arabic: 'الأنعام', ayahs: 165 },
+      { name: 'Al-Araf', arabic: 'الأعراف', ayahs: 206 },
+      { name: 'Al-Anfal', arabic: 'الأنفال', ayahs: 75 },
+      { name: 'At-Tawbah', arabic: 'التوبة', ayahs: 129 },
+      { name: 'Yunus', arabic: 'يونس', ayahs: 109 },
+      { name: 'Hud', arabic: 'هود', ayahs: 123 },
+      { name: 'Yusuf', arabic: 'يوسف', ayahs: 111 },
+      { name: 'Ar-Ra\'d', arabic: 'الرعد', ayahs: 43 },
+      { name: 'Ibrahim', arabic: 'إبراهيم', ayahs: 52 },
+      { name: 'Al-Hijr', arabic: 'الحجر', ayahs: 99 },
+      { name: 'An-Nahl', arabic: 'النحل', ayahs: 128 },
+      { name: 'Al-Isra', arabic: 'الإسراء', ayahs: 111 },
+      { name: 'Al-Kahf', arabic: 'الكهف', ayahs: 110 },
+      { name: 'Maryam', arabic: 'مريم', ayahs: 98 },
+      { name: 'Ta-Ha', arabic: 'طه', ayahs: 135 },
+      { name: 'Al-Anbiya', arabic: 'الأنبياء', ayahs: 112 },
+      { name: 'Al-Hajj', arabic: 'الحج', ayahs: 78 },
+      { name: 'Al-Muminun', arabic: 'المؤمنون', ayahs: 118 },
+      { name: 'An-Nur', arabic: 'النور', ayahs: 64 },
+      { name: 'Al-Furqan', arabic: 'الفرقان', ayahs: 77 },
+      { name: 'Ash-Shuara', arabic: 'الشعراء', ayahs: 227 },
+      { name: 'An-Naml', arabic: 'النمل', ayahs: 93 },
+      { name: 'Al-Qasas', arabic: 'القصص', ayahs: 88 },
+      { name: 'Al-Ankabut', arabic: 'العنكبوت', ayahs: 69 },
+      { name: 'Ar-Rum', arabic: 'الروم', ayahs: 60 },
+      { name: 'Luqman', arabic: 'لقمان', ayahs: 34 },
+      { name: 'As-Sajdah', arabic: 'السجدة', ayahs: 30 },
+      { name: 'Al-Ahzab', arabic: 'الأحزاب', ayahs: 73 },
+      { name: 'Saba', arabic: 'سبأ', ayahs: 54 },
+      { name: 'Fatir', arabic: 'فاطر', ayahs: 45 },
+      { name: 'Ya-Sin', arabic: 'يس', ayahs: 83 },
+      { name: 'As-Saffat', arabic: 'الصافات', ayahs: 182 },
+      { name: 'Sad', arabic: 'ص', ayahs: 88 },
+      { name: 'Az-Zumar', arabic: 'الزمر', ayahs: 75 },
+      { name: 'Ghafir', arabic: 'غافر', ayahs: 85 },
+      { name: 'Fussilat', arabic: 'فصلت', ayahs: 54 },
+      { name: 'Ash-Shura', arabic: 'الشورى', ayahs: 53 },
+      { name: 'Az-Zukhruf', arabic: 'الزخرف', ayahs: 89 },
+      { name: 'Ad-Dukhan', arabic: 'الدخان', ayahs: 59 },
+      { name: 'Al-Jathiyah', arabic: 'الجاثية', ayahs: 37 },
+      { name: 'Al-Ahqaf', arabic: 'الأحقاف', ayahs: 35 },
+      { name: 'Muhammad', arabic: 'محمد', ayahs: 38 },
+      { name: 'Al-Fath', arabic: 'الفتح', ayahs: 29 },
+      { name: 'Al-Hujurat', arabic: 'الحجرات', ayahs: 18 },
+      { name: 'Qaf', arabic: 'ق', ayahs: 45 },
+      { name: 'Adh-Dhariyat', arabic: 'الذاريات', ayahs: 60 },
+      { name: 'At-Tur', arabic: 'الطور', ayahs: 49 },
+      { name: 'An-Najm', arabic: 'النجم', ayahs: 62 },
+      { name: 'Al-Qamar', arabic: 'القمر', ayahs: 55 },
+      { name: 'Ar-Rahman', arabic: 'الرحمن', ayahs: 78 },
+      { name: 'Al-Waqiah', arabic: 'الواقعة', ayahs: 96 },
+      { name: 'Al-Hadid', arabic: 'الحديد', ayahs: 29 },
+      { name: 'Al-Mujadila', arabic: 'المجادلة', ayahs: 22 },
+      { name: 'Al-Hashr', arabic: 'الحشر', ayahs: 24 },
+      { name: 'Al-Mumtahina', arabic: 'الممتحنة', ayahs: 13 },
+      { name: 'As-Saf', arabic: 'الصف', ayahs: 14 },
+      { name: 'Al-Jumuah', arabic: 'الجمعة', ayahs: 11 },
+      { name: 'Al-Munafiqun', arabic: 'المنافقون', ayahs: 11 },
+      { name: 'At-Taghabun', arabic: 'التغابن', ayahs: 18 },
+      { name: 'At-Talaq', arabic: 'الطلاق', ayahs: 12 },
+      { name: 'At-Tahrim', arabic: 'التحريم', ayahs: 12 },
+      { name: 'Al-Mulk', arabic: 'الملك', ayahs: 30 },
+      { name: 'Al-Qalam', arabic: 'القلم', ayahs: 52 },
+      { name: 'Al-Haqqah', arabic: 'الحاقة', ayahs: 52 },
+      { name: 'Al-Maarij', arabic: 'المعارج', ayahs: 44 },
+      { name: 'Nuh', arabic: 'نوح', ayahs: 28 },
+      { name: 'Al-Jinn', arabic: 'الجن', ayahs: 28 },
+      { name: 'Al-Muzzammil', arabic: 'المزمل', ayahs: 20 },
+      { name: 'Al-Muddathir', arabic: 'المدثر', ayahs: 56 },
+      { name: 'Al-Qiyamah', arabic: 'القيامة', ayahs: 40 },
+      { name: 'Al-Insan', arabic: 'الإنسان', ayahs: 31 },
+      { name: 'Al-Mursalat', arabic: 'المرسلات', ayahs: 50 },
+      { name: 'An-Naba', arabic: 'النبأ', ayahs: 40 },
+      { name: 'An-Naziat', arabic: 'النازعات', ayahs: 46 },
+      { name: 'Abasa', arabic: 'عبس', ayahs: 42 },
+      { name: 'At-Takwir', arabic: 'التكوير', ayahs: 29 },
+      { name: 'Al-Infitar', arabic: 'الانفطار', ayahs: 19 },
+      { name: 'Al-Mutaffifin', arabic: 'المطففين', ayahs: 36 },
+      { name: 'Al-Inshiqaq', arabic: 'الانشقاق', ayahs: 25 },
+      { name: 'Al-Buruj', arabic: 'البروج', ayahs: 22 },
+      { name: 'At-Tariq', arabic: 'الطارق', ayahs: 17 },
+      { name: 'Al-Ala', arabic: 'الأعلى', ayahs: 19 },
+      { name: 'Al-Ghashiyah', arabic: 'الغاشية', ayahs: 26 },
+      { name: 'Al-Fajr', arabic: 'الفجر', ayahs: 30 },
+      { name: 'Al-Balad', arabic: 'البلد', ayahs: 20 },
+      { name: 'Ash-Shams', arabic: 'الشمس', ayahs: 15 },
+      { name: 'Al-Layl', arabic: 'الليل', ayahs: 21 },
+      { name: 'Ad-Duhaa', arabic: 'الضحى', ayahs: 11 },
+      { name: 'Ash-Sharh', arabic: 'الشرح', ayahs: 8 },
+      { name: 'At-Tin', arabic: 'التين', ayahs: 8 },
+      { name: 'Al-Alaq', arabic: 'العلق', ayahs: 19 },
+      { name: 'Al-Qadr', arabic: 'القدر', ayahs: 5 },
+      { name: 'Al-Bayyinah', arabic: 'البينة', ayahs: 8 },
+      { name: 'Az-Zalzalah', arabic: 'الزلزلة', ayahs: 8 },
+      { name: 'Al-Adiyat', arabic: 'العاديات', ayahs: 11 },
+      { name: 'Al-Qariah', arabic: 'القارعة', ayahs: 11 },
+      { name: 'At-Takathur', arabic: 'التكاثر', ayahs: 8 },
+      { name: 'Al-Asr', arabic: 'العصر', ayahs: 3 },
+      { name: 'Al-Humazah', arabic: 'الهمزة', ayahs: 9 },
+      { name: 'Al-Fil', arabic: 'الفيل', ayahs: 5 },
+      { name: 'Quraysh', arabic: 'قريش', ayahs: 4 },
+      { name: 'Al-Maun', arabic: 'الماعون', ayahs: 7 },
+      { name: 'Al-Kawthar', arabic: 'الكوثر', ayahs: 3 },
+      { name: 'Al-Kafirun', arabic: 'الكافرون', ayahs: 6 },
+      { name: 'An-Nasr', arabic: 'النصر', ayahs: 3 },
+      { name: 'Al-Masad', arabic: 'المسد', ayahs: 5 },
+      { name: 'Al-Ikhlas', arabic: 'الإخلاص', ayahs: 4 },
+      { name: 'Al-Falaq', arabic: 'الفلق', ayahs: 5 },
+      { name: 'An-Nas', arabic: 'الناس', ayahs: 6 },
+    ];
+
+    function TajweedTrainer() {
+      const [surahStart, setSurahStart] = useState(1);
+      const [surahEnd, setSurahEnd] = useState(1);
+      const [ayahStart, setAyahStart] = useState(1);
+      const [ayahEnd, setAyahEnd] = useState(1);
+      const [arabicText, setArabicText] = useState('');
+      const [reciter, setReciter] = useState('yasser_dosari');
+      
+      const [extractedRules, setExtractedRules] = useState(null);
+      const [isFetchingTajweed, setIsFetchingTajweed] = useState(false);
+      const [coloredArabicHtml, setColoredArabicHtml] = useState('');
+      
+      const [isRecording, setIsRecording] = useState(false);
+      const [recordingTime, setRecordingTime] = useState(0);
+      const [audioLevel, setAudioLevel] = useState(0);
+      const [userRecordings, setUserRecordings] = useState([]);
+      
+      const [isPlayingReference, setIsPlayingReference] = useState(false);
+      const [playbackSpeed, setPlaybackSpeed] = useState(0.75);
+      const [loopMode, setLoopMode] = useState(false);
+      const [includeBismillah, setIncludeBismillah] = useState(true);
+      
+      const [feedback, setFeedback] = useState(null);
+      const [error, setError] = useState(null);
+      const [sessionHistory, setSessionHistory] = useState([]);
+      const [showLegend, setShowLegend] = useState(false);
+      const [selectedRule, setSelectedRule] = useState(null);
+      
+      const [currentPlayingSurah, setCurrentPlayingSurah] = useState(null);
+      const [currentPlayingAyah, setCurrentPlayingAyah] = useState(null);
+      
+      // Microphone selection
+      const [audioDevices, setAudioDevices] = useState([]);
+      const [selectedMic, setSelectedMic] = useState('');
+      const [isPlayingUserRecording, setIsPlayingUserRecording] = useState(null);
+      const [lastRecordingSaved, setLastRecordingSaved] = useState(null);
+      const [showChecklist, setShowChecklist] = useState(false);
+      
+      // Display controls
+      const [isFullscreen, setIsFullscreen] = useState(false);
+      const [fontSize, setFontSize] = useState(32);
+      const [verseStep, setVerseStep] = useState(5);
+      const [currentPage, setCurrentPage] = useState(0);
+      const [allVersesHtml, setAllVersesHtml] = useState([]); // Store each verse's HTML separately
+      const [lineHeight, setLineHeight] = useState(2.0);
+      const [navStep, setNavStep] = useState(5); // How many verses to jump when navigating
+      
+      // Navigate to next/previous verses
+      const navigateVerses = (direction) => {
+        // direction: 1 for next, -1 for previous
+        const step = navStep * direction;
+        
+        let newSurah = surahStart;
+        let newAyah = ayahStart + step;
+        
+        // Handle overflow/underflow
+        if (newAyah > SURAH_DATA[newSurah]?.ayahs) {
+          // Move to next surah(s)
+          while (newAyah > SURAH_DATA[newSurah]?.ayahs && newSurah < 114) {
+            newAyah -= SURAH_DATA[newSurah]?.ayahs;
+            newSurah++;
+          }
+          if (newSurah > 114) {
+            newSurah = 114;
+            newAyah = SURAH_DATA[114]?.ayahs;
+          }
+        } else if (newAyah < 1) {
+          // Move to previous surah(s)
+          while (newAyah < 1 && newSurah > 1) {
+            newSurah--;
+            newAyah += SURAH_DATA[newSurah]?.ayahs;
+          }
+          if (newSurah < 1) {
+            newSurah = 1;
+            newAyah = 1;
+          }
+        }
+        
+        // Calculate end position
+        let endSurah = newSurah;
+        let endAyah = newAyah + navStep - 1;
+        
+        while (endAyah > SURAH_DATA[endSurah]?.ayahs && endSurah < 114) {
+          endAyah -= SURAH_DATA[endSurah]?.ayahs;
+          endSurah++;
+        }
+        if (endSurah > 114) {
+          endSurah = 114;
+          endAyah = SURAH_DATA[114]?.ayahs;
+        }
+        
+        // Update state
+        setSurahStart(newSurah);
+        setAyahStart(newAyah);
+        setSurahEnd(endSurah);
+        setAyahEnd(endAyah);
+        
+        // Clear previous data
+        setFeedback(null);
+        setExtractedRules(null);
+        setColoredArabicHtml('');
+        setArabicText('');
+        setAllVersesHtml([]);
+        setShowChecklist(false);
+        setCurrentPage(0);
+      };
+      
+      const mediaRecorderRef = useRef(null);
+      const audioContextRef = useRef(null);
+      const analyserRef = useRef(null);
+      const timerRef = useRef(null);
+      const chunksRef = useRef([]);
+      const referenceAudioRef = useRef(null);
+      const userAudioRef = useRef(null);
+
+      // Get available microphones on mount
+      React.useEffect(() => {
+        // Check if we're on a secure context (HTTPS or localhost)
+        const isSecure = window.isSecureContext;
+        const isFileProtocol = window.location.protocol === 'file:';
+        
+        if (!isSecure || isFileProtocol) {
+          console.warn('⚠️ Running on insecure context - microphone may not work');
+        }
+        
+        async function getDevices() {
+          try {
+            // First just try to enumerate without requesting permission
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === 'audioinput');
+            
+            // If we got devices with labels, permission was already granted
+            if (mics.length > 0 && mics[0].label) {
+              setAudioDevices(mics);
+              setSelectedMic(mics[0].deviceId);
+            } else if (mics.length > 0) {
+              // We have devices but no labels - set them anyway, labels will appear after permission
+              setAudioDevices(mics);
+              setSelectedMic(mics[0].deviceId);
+            }
+          } catch (err) {
+            console.log('Device enumeration not available yet - will get devices when recording starts');
+          }
+        }
+        getDevices();
+      }, []);
+
+      const maxAyahsStart = SURAH_DATA[surahStart]?.ayahs || 7;
+      const maxAyahsEnd = SURAH_DATA[surahEnd]?.ayahs || 7;
+
+      const getReferenceAudioUrl = (surahNum, ayahNum) => {
+        const r = RECITERS[reciter];
+        // ayahNum 0 = Bismillah file
+        return `${r.baseUrl}/${surahNum.toString().padStart(3, '0')}${ayahNum.toString().padStart(3, '0')}.mp3`;
+      };
+
+      const getNextAyah = (currentSurah, currentAyah) => {
+        const maxAyahs = SURAH_DATA[currentSurah]?.ayahs || 1;
+        if (currentAyah < maxAyahs) {
+          return { surah: currentSurah, ayah: currentAyah + 1 };
+        } else if (currentSurah < 114) {
+          return { surah: currentSurah + 1, ayah: 1 };
+        }
+        return null;
+      };
+
+      const isEndOfRange = (currentSurah, currentAyah) => {
+        if (currentSurah > surahEnd) return true;
+        if (currentSurah === surahEnd && currentAyah >= ayahEnd) return true;
+        return false;
+      };
+
+      const playReference = (startSurah = surahStart, startAyah = ayahStart, playingBismillah = false) => {
+        if (referenceAudioRef.current) referenceAudioRef.current.pause();
+        
+        // Check if we should play Bismillah first
+        const shouldPlayBismillahFirst = includeBismillah && 
+          startSurah !== 1 && // Al-Fatiha has Bismillah as verse 1
+          startSurah !== 9 && // At-Tawbah has no Bismillah
+          startAyah === 1 && 
+          startSurah === surahStart &&
+          !playingBismillah;
+        
+        if (shouldPlayBismillahFirst) {
+          // Play Bismillah (verse 000) first
+          const bismillahUrl = getReferenceAudioUrl(startSurah, 0);
+          const audio = new Audio(bismillahUrl);
+          audio.playbackRate = playbackSpeed;
+          referenceAudioRef.current = audio;
+          setCurrentPlayingSurah(startSurah);
+          setCurrentPlayingAyah('بسم الله');
+          
+          audio.onplay = () => setIsPlayingReference(true);
+          audio.onended = () => {
+            // Now play the actual first verse
+            setTimeout(() => playReference(startSurah, startAyah, true), 200);
+          };
+          audio.onerror = () => {
+            // Bismillah file might not exist, skip to verse 1
+            playReference(startSurah, startAyah, true);
+          };
+          audio.play().catch(() => playReference(startSurah, startAyah, true));
+          return;
+        }
+        
+        const audio = new Audio(getReferenceAudioUrl(startSurah, startAyah));
+        audio.playbackRate = playbackSpeed;
+        referenceAudioRef.current = audio;
+        setCurrentPlayingSurah(startSurah);
+        setCurrentPlayingAyah(startAyah);
+        
+        audio.onplay = () => setIsPlayingReference(true);
+        audio.onended = () => {
+          if (!isEndOfRange(startSurah, startAyah)) {
+            const next = getNextAyah(startSurah, startAyah);
+            if (next && (next.surah < surahEnd || (next.surah === surahEnd && next.ayah <= ayahEnd))) {
+              // If moving to new surah and Bismillah enabled, play it
+              const needsBismillah = includeBismillah && 
+                next.surah !== startSurah && 
+                next.surah !== 9 &&
+                next.ayah === 1;
+              setTimeout(() => playReference(next.surah, next.ayah, !needsBismillah), 300);
+              return;
+            }
+          }
+          setIsPlayingReference(false);
+          setCurrentPlayingSurah(null);
+          setCurrentPlayingAyah(null);
+          if (loopMode) setTimeout(() => playReference(surahStart, ayahStart, false), 500);
+        };
+        audio.onerror = () => {
+          setError(`Could not load ${SURAH_DATA[startSurah]?.arabic} ${startSurah}:${startAyah}`);
+          setIsPlayingReference(false);
+          setCurrentPlayingSurah(null);
+          setCurrentPlayingAyah(null);
+        };
+        audio.play().catch(e => setError('Playback failed'));
+      };
+
+      const stopReference = () => {
+        if (referenceAudioRef.current) {
+          referenceAudioRef.current.pause();
+          setIsPlayingReference(false);
+          setCurrentPlayingSurah(null);
+          setCurrentPlayingAyah(null);
+        }
+      };
+
+      const fetchTajweedRules = async () => {
+        setIsFetchingTajweed(true);
+        setError(null);
+        
+        try {
+          const verses = [];
+          const rules = [];
+          
+          for (let s = surahStart; s <= surahEnd; s++) {
+            const startAyah = s === surahStart ? ayahStart : 1;
+            const endAyah = s === surahEnd ? ayahEnd : (SURAH_DATA[s]?.ayahs || 1);
+            
+            // CORRECT endpoint for tajweed text
+            const response = await fetch(
+              `https://api.quran.com/api/v4/quran/verses/uthmani_tajweed?chapter_number=${s}`
+            );
+            
+            if (!response.ok) {
+              throw new Error(`API error: ${response.status}`);
+            }
+            
+            const json = await response.json();
+            const data = json.verses || [];
+            console.log('Loaded', data.length, 'verses for surah', s);
+            
+            if (data.length > 0) {
+              console.log('Sample verse:', data[0].verse_key, data[0].text_uthmani_tajweed?.substring(0, 200));
+            }
+            
+            // Filter to selected ayah range
+            for (const verse of data) {
+              const ayahNum = parseInt(verse.verse_key?.split(':')[1]) || 0;
+              
+              if (ayahNum < startAyah || ayahNum > endAyah) continue;
+              
+              const tajweedText = verse.text_uthmani_tajweed || '';
+              
+              verses.push({
+                key: verse.verse_key,
+                text: tajweedText
+              });
+              
+              // Parse tajweed tags - note: class may or may not have quotes
+              // Example: <tajweed class=ham_wasl>ٱ</tajweed> or <tajweed class="ham_wasl">ٱ</tajweed>
+              const tagRegex = /<tajweed\s+class=["']?([^"'>\s]+)["']?>([^<]+)<\/tajweed>/g;
+              let match;
+              
+              // Track all classes found
+              const allClassesFound = new Set();
+              
+              while ((match = tagRegex.exec(tajweedText)) !== null) {
+                const apiRule = match[1];
+                const arabicText = match[2];
+                
+                allClassesFound.add(apiRule);
+                
+                const ourRule = TAJWEED_API_MAP[apiRule];
+                
+                if (ourRule && TAJWEED_COLORS[ourRule]) {
+                  rules.push({
+                    text: arabicText,
+                    verse: verse.verse_key,
+                    rule: ourRule,
+                    arabic_rule: TAJWEED_COLORS[ourRule].arabic,
+                    counts: TAJWEED_COLORS[ourRule].counts,
+                    instruction: TAJWEED_COLORS[ourRule].howTo
+                  });
+                } else if (apiRule && !TAJWEED_API_MAP.hasOwnProperty(apiRule)) {
+                  console.log('Unmapped rule:', apiRule, 'text:', arabicText);
+                }
+              }
+              
+              if (allClassesFound.size > 0) {
+                console.log('Classes in verse', verse.verse_key + ':', Array.from(allClassesFound).join(', '));
+              }
+            }
+          }
+          
+          // Log summary of all rules found
+          const allRuleTypes = [...new Set(rules.map(r => r.rule))];
+          console.log('=== RULES FOUND ===');
+          console.log('Rule types:', allRuleTypes.join(', '));
+          
+          // Remove duplicate rules
+          const uniqueRules = rules.reduce((acc, curr) => {
+            const key = `${curr.text}-${curr.rule}`;
+            if (!acc.find(r => `${r.text}-${r.rule}` === key)) {
+              acc.push(curr);
+            }
+            return acc;
+          }, []);
+          
+          setExtractedRules({ rules: uniqueRules, source: 'api' });
+          
+          // Plain text (strip HTML)
+          const plainText = verses.map(v => 
+            v.text.replace(/<[^>]+>/g, '')
+          ).join(' ۝ ');
+          setArabicText(plainText);
+          
+          // Create colored HTML for each verse separately
+          const versesHtml = verses.map(v => {
+            let html = v.text;
+            
+            // Step 1: Replace tajweed tags with colored spans
+            html = html.replace(/<tajweed\s+class=["']?([^"'>\s]+)["']?>([^<]+)<\/tajweed>/g, (match, className, text) => {
+              const ourRule = TAJWEED_API_MAP[className];
+              if (ourRule && TAJWEED_COLORS[ourRule]) {
+                const color = TAJWEED_COLORS[ourRule].color;
+                return `<span style="color: ${color}; font-weight: bold;" title="${TAJWEED_COLORS[ourRule].arabic}">${text}</span>`;
+              }
+              // Unmapped class - log and return plain text
+              if (!TAJWEED_API_MAP.hasOwnProperty(className)) {
+                console.log('Unmapped:', className);
+              }
+              return text;
+            });
+            
+            // Step 2: Detect tafkheem letters NOT already in spans
+            // Tafkheem letters: خ ص ض غ ط ق ظ
+            // ق and ط may also be qalqalah - only apply tafkheem if not already colored
+            const tafkheemLetters = 'خصضغظقط';
+            const tafkheemRegex = new RegExp(`([${tafkheemLetters}])`, 'g');
+            
+            // Split by spans, only apply tafkheem to text OUTSIDE of spans
+            const parts = html.split(/(<span[^>]*>.*?<\/span>)/g);
+            html = parts.map(part => {
+              // If it's already a span, leave it alone
+              if (part.startsWith('<span')) return part;
+              // Otherwise, apply tafkheem to heavy letters
+              return part.replace(tafkheemRegex, 
+                `<span style="color: ${COLORS.DARK_BLUE}; font-weight: bold;" title="تفخيم">$1</span>`
+              );
+            }).join('');
+            
+            // Step 3: Remove verse number spans
+            html = html.replace(/<span\s+class=["']?end["']?>([^<]+)<\/span>/g, '');
+            
+            return { key: v.key, html };
+          });
+          
+          // Store verses separately for pagination
+          setAllVersesHtml(versesHtml);
+          setCurrentPage(0);
+          
+          // Also create full combined HTML
+          const coloredHtml = versesHtml.map(v => v.html).join(' <span style="color:#000">۝</span> ');
+          setColoredArabicHtml(coloredHtml);
+          
+          console.log('Total:', verses.length, 'verses,', uniqueRules.length, 'rules');
+          
+          if (verses.length === 0) {
+            setError('No verses loaded from API');
+          }
+          
+        } catch (err) {
+          setError('Failed to fetch: ' + err.message);
+          console.error('Fetch error:', err);
+        } finally {
+          setIsFetchingTajweed(false);
+        }
+      };
+
+      const playUserRecording = (url, index) => {
+        if (userAudioRef.current) {
+          userAudioRef.current.pause();
+        }
+        const audio = new Audio(url);
+        userAudioRef.current = audio;
+        audio.playbackRate = playbackSpeed;
+        setIsPlayingUserRecording(index);
+        audio.onended = () => setIsPlayingUserRecording(null);
+        audio.play();
+      };
+
+      const stopUserRecording = () => {
+        if (userAudioRef.current) {
+          userAudioRef.current.pause();
+          setIsPlayingUserRecording(null);
+        }
+      };
+
+      // Generate checklist items from loaded rules (no API needed!)
+      const generateChecklist = () => {
+        if (!extractedRules?.rules?.length) return [];
+        
+        // Group rules by type for better organization
+        const rulesByType = {};
+        extractedRules.rules.forEach(r => {
+          if (!rulesByType[r.rule]) {
+            rulesByType[r.rule] = [];
+          }
+          rulesByType[r.rule].push(r);
+        });
+        
+        return Object.entries(rulesByType).map(([ruleKey, items]) => {
+          const ruleInfo = TAJWEED_COLORS[ruleKey];
+          return {
+            rule: ruleKey,
+            arabic_rule: ruleInfo?.arabic || ruleKey,
+            color: ruleInfo?.color || '#888',
+            counts: ruleInfo?.counts,
+            howTo: ruleInfo?.howTo,
+            description: ruleInfo?.description,
+            instances: items.map(i => i.text),
+            // Generate self-check questions based on rule type
+            check: getCheckQuestion(ruleKey, ruleInfo),
+            listen_for: getListenFor(ruleKey, ruleInfo),
+            common_mistake: getCommonMistake(ruleKey, ruleInfo)
+          };
+        });
+      };
+      
+      const getCheckQuestion = (ruleKey, ruleInfo) => {
+        const checks = {
+          madd_lazim: "Did I hold for exactly 6 counts?",
+          madd_wajib: "Did I hold for 4-5 counts?",
+          madd_jaiz: "Did I hold consistently (2, 4, or 6 counts)?",
+          madd_tabii: "Did I hold for exactly 2 counts (not longer)?",
+          ghunnah: "Did I nasalize for 2 counts through my nose?",
+          silent: "Did I skip these letters / merge smoothly?",
+          qalqalah: "Did I add the echo/bounce sound?",
+          tafkheem: "Did I make it heavy/thick?"
+        };
+        return checks[ruleKey] || `Did I apply ${ruleInfo?.arabic} correctly?`;
+      };
+      
+      const getListenFor = (ruleKey, ruleInfo) => {
+        const listens = {
+          madd_lazim: "A long, sustained 'aa/ee/oo' sound - count 1-2-3-4-5-6",
+          madd_wajib: "Strong stretch when madd meets hamza in same word - 4-5 counts",
+          madd_jaiz: "Consistent length each time - pick 2, 4, or 6 and stick with it",
+          madd_tabii: "Short but present 'aa/ee/oo' - exactly 2 counts, not rushed",
+          ghunnah: "Humming/buzzing sound through the nose for 2 counts",
+          silent: "Smooth flow - these letters should be inaudible",
+          qalqalah: "A slight 'bounce' or echo after ق ط ب ج د",
+          tafkheem: "Thick, heavy sound - like you have a marble in your mouth"
+        };
+        return listens[ruleKey] || ruleInfo?.howTo || "Listen for correct application";
+      };
+      
+      const getCommonMistake = (ruleKey, ruleInfo) => {
+        const mistakes = {
+          madd_lazim: "Cutting it short (4-5 counts) or inconsistent length",
+          madd_wajib: "Treating it like regular madd (too short) or over-stretching",
+          madd_jaiz: "Different lengths each time - be consistent!",
+          madd_tabii: "Stretching too long (sounds like madd lazim) or too short",
+          ghunnah: "No nasalization, or pronouncing the noon/meem fully",
+          silent: "Pronouncing letters that should be silent",
+          qalqalah: "No bounce, or adding a vowel sound (qaf-a instead of qaf)",
+          tafkheem: "Making it thin/light instead of heavy"
+        };
+        return mistakes[ruleKey] || "Not applying the rule consistently";
+      };
+
+      const startRecording = async () => {
+        try {
+          const constraints = { 
+            audio: selectedMic 
+              ? { deviceId: { exact: selectedMic }, echoCancellation: true, noiseSuppression: true }
+              : { echoCancellation: true, noiseSuppression: true }
+          };
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          
+          // Now that we have permission, enumerate devices to get labels
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === 'audioinput');
+            if (mics.length > 0) {
+              setAudioDevices(mics);
+              if (!selectedMic) {
+                setSelectedMic(mics[0].deviceId);
+              }
+            }
+          } catch (e) {
+            console.log('Could not enumerate devices:', e);
+          }
+          
+          audioContextRef.current = new AudioContext();
+          analyserRef.current = audioContextRef.current.createAnalyser();
+          audioContextRef.current.createMediaStreamSource(stream).connect(analyserRef.current);
+          analyserRef.current.fftSize = 256;
+          
+          const updateLevel = () => {
+            if (analyserRef.current) {
+              const data = new Uint8Array(analyserRef.current.frequencyBinCount);
+              analyserRef.current.getByteFrequencyData(data);
+              setAudioLevel(data.reduce((a, b) => a + b) / data.length / 128);
+              if (mediaRecorderRef.current?.state === 'recording') {
+                requestAnimationFrame(updateLevel);
+              }
+            }
+          };
+          
+          mediaRecorderRef.current = new MediaRecorder(stream);
+          chunksRef.current = [];
+          
+          mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data.size > 0) chunksRef.current.push(e.data);
+          };
+          
+          mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+            const url = URL.createObjectURL(blob);
+            const newRecording = { url, surahStart, surahEnd, ayahStart, ayahEnd, time: Date.now() };
+            setUserRecordings(prev => [...prev, newRecording]);
+            setLastRecordingSaved(Date.now());
+            // Auto-clear the "saved" message after 5 seconds
+            setTimeout(() => setLastRecordingSaved(null), 5000);
+          };
+          
+          mediaRecorderRef.current.start();
+          setIsRecording(true);
+          setRecordingTime(0);
+          timerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+          requestAnimationFrame(updateLevel);
+        } catch (err) {
+          console.error('Mic error:', err);
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            setError('🎤 Microphone access denied. On mobile, this app needs to be served over HTTPS. Try: 1) Allow mic permission in browser settings, or 2) Host this file on a web server with HTTPS.');
+          } else if (err.name === 'NotFoundError') {
+            setError('🎤 No microphone found. Please connect a microphone and try again.');
+          } else if (err.name === 'NotReadableError') {
+            setError('🎤 Microphone is busy or unavailable. Close other apps using the mic and try again.');
+          } else {
+            setError('🎤 Mic error: ' + err.message);
+          }
+        }
+      };
+
+      const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+          mediaRecorderRef.current.stop();
+          mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+          setIsRecording(false);
+          clearInterval(timerRef.current);
+          setAudioLevel(0);
+        }
+      };
+
+      const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-amber-200 via-orange-100 to-yellow-100 p-2">
+          <div className="max-w-6xl mx-auto">
+            {/* Header */}
+            <div className="text-center py-3">
+              <h1 className="text-2xl font-bold text-stone-800">
+                <span className="text-amber-600">تجويد</span> Trainer
+              </h1>
+              <p className="text-amber-700/70 text-xs">Al-Azhar Color System</p>
+            </div>
+
+            <div className="grid lg:grid-cols-12 gap-3">
+              {/* LEFT: Color Legend */}
+              <div className="lg:col-span-3 space-y-2">
+                <button 
+                  onClick={() => setShowLegend(!showLegend)}
+                  className="w-full bg-white/70 backdrop-blur-sm rounded-xl p-3 text-stone-800 text-sm flex justify-between items-center"
+                >
+                  <span>🎨 Color Legend (8 colors)</span>
+                  <span>{showLegend ? '▼' : '▶'}</span>
+                </button>
+                
+                {showLegend && (
+                  <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3 space-y-1">
+                    {COLOR_LEGEND.map((item, i) => (
+                      <div 
+                        key={i}
+                        className="flex items-center gap-2 p-2 rounded-lg hover:bg-amber-100"
+                      >
+                        <div 
+                          className="w-5 h-5 rounded-full flex-shrink-0 border-2 border-amber-300"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-stone-800 text-sm">{item.arabic}</div>
+                          <div className="text-amber-800/50 text-xs">{item.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Extracted Rules */}
+                {extractedRules?.rules && extractedRules.rules.length > 0 && (
+                  <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-bold text-amber-700">
+                        {extractedRules.rules.length} Tajweed Rules
+                      </span>
+                      <span className="text-xs text-stone-800/40">📖 API</span>
+                    </div>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {extractedRules.rules.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-white/70 rounded p-1.5">
+                          <div 
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: TAJWEED_COLORS[r.rule]?.color || '#888' }}
+                          />
+                          <span className="text-stone-800 font-arabic text-sm">{r.text}</span>
+                          <span className="text-amber-800/50 text-xs ml-auto">{r.arabic_rule}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CENTER: Main Controls */}
+              <div className="lg:col-span-5 space-y-3">
+                {/* Step 1: Surah/Ayah Navigation */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">Step 1: Select Passage</div>
+                  <div className="text-amber-800/50 text-xs mb-1">From:</div>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    <select 
+                      value={surahStart}
+                      onChange={(e) => { 
+                        const newSurah = +e.target.value;
+                        setSurahStart(newSurah); 
+                        setAyahStart(1);
+                        if (newSurah > surahEnd) {
+                          setSurahEnd(newSurah);
+                          setAyahEnd(1);
+                        }
+                        setFeedback(null);
+                        setExtractedRules(null);
+                        setColoredArabicHtml('');
+                        setArabicText('');
+                        setShowChecklist(false);
+                      }}
+                      className="col-span-3 bg-amber-50 border border-amber-300 rounded-lg p-2 text-stone-800 text-sm"
+                    >
+                      {SURAH_DATA.slice(1).map((s, i) => (
+                        <option key={i+1} value={i+1} className="bg-amber-50 text-stone-800">
+                          {i+1}. {s.arabic}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={ayahStart}
+                      onChange={(e) => { 
+                        const val = Math.max(1, Math.min(maxAyahsStart, +e.target.value));
+                        setAyahStart(val);
+                        if (surahStart === surahEnd && val > ayahEnd) setAyahEnd(val);
+                        setFeedback(null);
+                        setExtractedRules(null);
+                        setColoredArabicHtml('');
+                        setArabicText('');
+                        setShowChecklist(false);
+                      }}
+                      min={1}
+                      max={maxAyahsStart}
+                      className="bg-amber-50 border border-amber-300 rounded-lg p-2 text-stone-800 text-sm text-center"
+                    />
+                  </div>
+
+                  <div className="text-amber-800/50 text-xs mb-1">To:</div>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    <select 
+                      value={surahEnd}
+                      onChange={(e) => { 
+                        const newSurah = +e.target.value;
+                        setSurahEnd(newSurah);
+                        if (newSurah !== surahStart) {
+                          setAyahEnd(SURAH_DATA[newSurah]?.ayahs || 1);
+                        } else if (ayahEnd < ayahStart) {
+                          setAyahEnd(ayahStart);
+                        }
+                        setFeedback(null);
+                        setExtractedRules(null);
+                        setColoredArabicHtml('');
+                        setArabicText('');
+                        setShowChecklist(false);
+                      }}
+                      className="col-span-3 bg-amber-50 border border-amber-300 rounded-lg p-2 text-stone-800 text-sm"
+                    >
+                      {SURAH_DATA.slice(1).map((s, i) => (
+                        <option key={i+1} value={i+1} className="bg-amber-50 text-stone-800" disabled={i+1 < surahStart}>
+                          {i+1}. {s.arabic}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={ayahEnd}
+                      onChange={(e) => { 
+                        const minAyah = surahStart === surahEnd ? ayahStart : 1;
+                        const val = Math.max(minAyah, Math.min(maxAyahsEnd, +e.target.value));
+                        setAyahEnd(val); 
+                        setFeedback(null);
+                        setExtractedRules(null);
+                        setColoredArabicHtml('');
+                        setArabicText('');
+                        setShowChecklist(false);
+                      }}
+                      min={surahStart === surahEnd ? ayahStart : 1}
+                      max={maxAyahsEnd}
+                      className="bg-amber-50 border border-amber-300 rounded-lg p-2 text-stone-800 text-sm text-center"
+                    />
+                  </div>
+
+                  <div className="text-center py-2 text-stone-800 bg-white/70 rounded-lg">
+                    {surahStart === surahEnd ? (
+                      <>
+                        <span className="text-lg font-arabic">{SURAH_DATA[surahStart]?.arabic}</span>
+                        <span className="text-amber-700 text-sm ml-2">
+                          {surahStart}:{ayahStart === ayahEnd ? ayahStart : `${ayahStart}-${ayahEnd}`}
+                        </span>
+                      </>
+                    ) : (
+                      <div className="text-sm">
+                        <span className="font-arabic">{SURAH_DATA[surahStart]?.arabic}</span>
+                        <span className="text-amber-700"> {surahStart}:{ayahStart}</span>
+                        <span className="text-amber-800/50 mx-2">→</span>
+                        <span className="font-arabic">{SURAH_DATA[surahEnd]?.arabic}</span>
+                        <span className="text-amber-700"> {surahEnd}:{ayahEnd}</span>
+                      </div>
+                    )}
+                    {currentPlayingSurah && (
+                      <div className="text-orange-400 text-xs mt-1">
+                        ▶ Playing: {SURAH_DATA[currentPlayingSurah]?.arabic} {currentPlayingAyah === 'بسم الله' ? 'بسم الله' : `${currentPlayingSurah}:${currentPlayingAyah}`}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    <button 
+                      onClick={() => { setSurahEnd(surahStart); setAyahEnd(ayahStart); setFeedback(null); setExtractedRules(null); setColoredArabicHtml(''); setArabicText(''); setShowChecklist(false); }}
+                      className="px-2 py-1 rounded text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100"
+                    >Single</button>
+                    <button 
+                      onClick={() => { setSurahEnd(surahStart); setAyahEnd(SURAH_DATA[surahStart]?.ayahs || 1); setFeedback(null); setExtractedRules(null); setColoredArabicHtml(''); setArabicText(''); setShowChecklist(false); }}
+                      className="px-2 py-1 rounded text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100"
+                    >Full Surah</button>
+                    <button 
+                      onClick={() => { setSurahStart(108); setAyahStart(1); setSurahEnd(114); setAyahEnd(6); setFeedback(null); setExtractedRules(null); setColoredArabicHtml(''); setArabicText(''); setShowChecklist(false); }}
+                      className="px-2 py-1 rounded text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100"
+                    >Last 7</button>
+                    <button 
+                      onClick={() => { setSurahStart(103); setAyahStart(1); setSurahEnd(114); setAyahEnd(6); setFeedback(null); setExtractedRules(null); setColoredArabicHtml(''); setArabicText(''); setShowChecklist(false); }}
+                      className="px-2 py-1 rounded text-xs bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100"
+                    >Last 12</button>
+                  </div>
+                  
+                  {/* Navigation controls */}
+                  <div className="mt-3 pt-3 border-t border-amber-200">
+                    <div className="text-amber-800/50 text-xs mb-2">Navigate by:</div>
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      {/* Step size selector - larger touch targets */}
+                      {[1, 5, 10, 20].map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setNavStep(n)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                            navStep === n 
+                              ? 'bg-amber-600 text-white' 
+                              : 'bg-amber-50 border border-amber-300 text-amber-800 active:bg-amber-200'
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      {/* Custom input */}
+                      <input
+                        type="number"
+                        value={navStep}
+                        onChange={(e) => setNavStep(Math.max(1, Math.min(50, +e.target.value)))}
+                        min={1}
+                        max={50}
+                        className="w-20 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-stone-800 text-sm text-center"
+                        title="Custom step"
+                      />
+                    </div>
+                    
+                    {/* Previous/Next buttons - large touch targets */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => navigateVerses(-1)}
+                        disabled={surahStart === 1 && ayahStart === 1}
+                        className="flex-1 py-4 bg-slate-600 hover:bg-slate-500 active:bg-slate-700 disabled:bg-slate-300 disabled:text-slate-500 rounded-xl text-white text-base font-bold"
+                      >
+                        ← Prev {navStep}
+                      </button>
+                      <button
+                        onClick={() => navigateVerses(1)}
+                        disabled={surahEnd === 114 && ayahEnd === SURAH_DATA[114]?.ayahs}
+                        className="flex-1 py-4 bg-slate-600 hover:bg-slate-500 active:bg-slate-700 disabled:bg-slate-300 disabled:text-slate-500 rounded-xl text-white text-base font-bold"
+                      >
+                        Next {navStep} →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 2: Load Tajweed Rules */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">Step 2: Load Rules</div>
+                  <button 
+                    onClick={fetchTajweedRules} 
+                    disabled={isFetchingTajweed}
+                    className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-400 rounded-lg text-white text-base font-bold"
+                  >
+                    {isFetchingTajweed ? '🔄 Loading...' : '📖 Load Tajweed Rules'}
+                  </button>
+                  {extractedRules?.rules?.length > 0 && (
+                    <p className="text-amber-700 text-xs text-center mt-2">✓ {extractedRules.rules.length} rules loaded</p>
+                  )}
+                </div>
+
+                {/* Verse Text (auto-filled when rules load) */}
+                {allVersesHtml.length > 0 && (
+                  <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto safe-area-inset' : 'bg-white rounded-xl p-4 border border-gray-300'}`}>
+                    {/* Controls Bar - reorganized for mobile */}
+                    <div className="space-y-2 mb-3 pb-3 border-b border-gray-200">
+                      {/* Row 1: Fullscreen + Font controls */}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => setIsFullscreen(!isFullscreen)}
+                          className="px-4 py-2 bg-slate-600 hover:bg-slate-500 active:bg-slate-700 text-white text-sm rounded-lg font-medium"
+                        >
+                          {isFullscreen ? '✕ Exit' : '⛶ Fullscreen'}
+                        </button>
+                        
+                        {/* Font size - compact */}
+                        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                          <button onClick={() => setFontSize(Math.max(16, fontSize - 4))} className="w-8 h-8 bg-gray-200 hover:bg-gray-300 active:bg-gray-400 rounded text-lg font-bold">−</button>
+                          <span className="text-gray-600 text-sm w-8 text-center">{fontSize}</span>
+                          <button onClick={() => setFontSize(Math.min(72, fontSize + 4))} className="w-8 h-8 bg-gray-200 hover:bg-gray-300 active:bg-gray-400 rounded text-lg font-bold">+</button>
+                        </div>
+                        
+                        {/* Line height - compact */}
+                        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                          <span className="text-gray-500 text-xs px-1">↕</span>
+                          <button onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} className="w-8 h-8 bg-gray-200 hover:bg-gray-300 active:bg-gray-400 rounded text-lg font-bold">−</button>
+                          <button onClick={() => setLineHeight(Math.min(4, lineHeight + 0.2))} className="w-8 h-8 bg-gray-200 hover:bg-gray-300 active:bg-gray-400 rounded text-lg font-bold">+</button>
+                        </div>
+                      </div>
+                      
+                      {/* Row 2: Verses per page */}
+                      <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar">
+                        <span className="text-gray-500 text-xs whitespace-nowrap">Show:</span>
+                        {[5, 10, 20, 'All'].map(n => (
+                          <button
+                            key={n}
+                            onClick={() => { setVerseStep(n === 'All' ? allVersesHtml.length : n); setCurrentPage(0); }}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
+                              (n === 'All' && verseStep >= allVersesHtml.length) || verseStep === n 
+                                ? 'bg-amber-600 text-white' 
+                                : 'bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-700'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Pagination - larger touch targets */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <button
+                        onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                        disabled={currentPage === 0}
+                        className="px-4 py-3 bg-amber-600 hover:bg-amber-500 active:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm rounded-lg font-medium"
+                      >
+                        ← Prev
+                      </button>
+                      
+                      <span className="text-gray-600 text-sm text-center">
+                        {currentPage * verseStep + 1}-{Math.min((currentPage + 1) * verseStep, allVersesHtml.length)} / {allVersesHtml.length}
+                      </span>
+                      
+                      <button
+                        onClick={() => setCurrentPage(Math.min(Math.ceil(allVersesHtml.length / verseStep) - 1, currentPage + 1))}
+                        disabled={(currentPage + 1) * verseStep >= allVersesHtml.length}
+                        className="px-4 py-3 bg-amber-600 hover:bg-amber-500 active:bg-amber-700 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm rounded-lg font-medium"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                    
+                    {/* Verse display */}
+                    <div 
+                      className={`text-black text-right font-arabic ${isFullscreen ? '' : 'max-h-64 overflow-y-auto'}`}
+                      dir="rtl"
+                      style={{ fontSize: `${fontSize}px`, lineHeight: lineHeight }}
+                      dangerouslySetInnerHTML={{ 
+                        __html: allVersesHtml
+                          .slice(currentPage * verseStep, (currentPage + 1) * verseStep)
+                          .map((v, i) => `<span class="verse-num" style="color: #999; font-size: 0.6em;">(${v.key.split(':')[1]})</span> ${v.html}`)
+                          .join(' <span style="color:#ccc">۝</span> ')
+                      }}
+                    />
+                    
+                    {/* Quick color key */}
+                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-200">
+                      <span className="text-xs" style={{color: COLORS.DARK_RED}}>■ مد لازم</span>
+                      <span className="text-xs" style={{color: COLORS.BLOOD_RED}}>■ مد واجب</span>
+                      <span className="text-xs" style={{color: COLORS.ORANGE_RED}}>■ مد جائز</span>
+                      <span className="text-xs" style={{color: COLORS.CUMIN_RED}}>■ مد طبيعي</span>
+                      <span className="text-xs" style={{color: COLORS.GREEN}}>■ غنة</span>
+                      <span className="text-xs" style={{color: COLORS.GRAY}}>■ صامت</span>
+                      <span className="text-xs" style={{color: COLORS.BLUE}}>■ قلقلة</span>
+                      <span className="text-xs" style={{color: COLORS.DARK_BLUE}}>■ تفخيم</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Reference Audio */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">Step 3: Listen</div>
+                  <div className="space-y-2 mb-3">
+                    <select 
+                      value={reciter}
+                      onChange={(e) => setReciter(e.target.value)}
+                      className="w-full bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-stone-800 text-sm"
+                    >
+                      {Object.entries(RECITERS).map(([k, v]) => (
+                        <option key={k} value={k} className="bg-amber-50 text-stone-800">{v.arabic} - {v.name}</option>
+                      ))}
+                    </select>
+                    
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-800/50 text-xs">Speed:</span>
+                      {[0.5, 0.75, 1].map(s => (
+                        <button
+                          key={s}
+                          onClick={() => setPlaybackSpeed(s)}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium ${playbackSpeed === s ? 'bg-amber-500 text-white' : 'bg-amber-50 border border-amber-300 text-amber-900 active:bg-amber-200'}`}
+                        >{s}x</button>
+                      ))}
+                      <button
+                        onClick={() => setLoopMode(!loopMode)}
+                        className={`px-3 py-2 rounded-lg text-sm ${loopMode ? 'bg-orange-500 text-white' : 'bg-amber-50 border border-amber-300 text-amber-900 active:bg-amber-200'}`}
+                      >🔁</button>
+                    </div>
+                  </div>
+                  
+                  {/* Bismillah toggle - only show for surahs other than Al-Fatiha and At-Tawbah */}
+                  {surahStart !== 1 && surahStart !== 9 && (
+                    <div className="mb-3">
+                      <button
+                        onClick={() => setIncludeBismillah(!includeBismillah)}
+                        className={`w-full py-3 rounded-lg text-sm font-medium ${includeBismillah ? 'bg-amber-500 text-white' : 'bg-amber-50 border border-amber-300 text-amber-900 active:bg-amber-200'}`}
+                      >
+                        {includeBismillah ? '✓ بسم الله included' : '+ Add بسم الله'}
+                      </button>
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={isPlayingReference ? stopReference : () => playReference()}
+                    className={`w-full py-4 rounded-xl font-bold text-white text-lg transition-all active:scale-98 ${
+                      isPlayingReference ? 'bg-orange-500 active:bg-orange-600' : 'bg-amber-600 hover:bg-amber-500 active:bg-amber-700'
+                    }`}
+                  >
+                    {isPlayingReference ? '⏹️ Stop' : (
+                      surahStart === surahEnd && ayahStart === ayahEnd 
+                        ? '▶️ Listen' 
+                        : `▶️ Listen (${surahStart === surahEnd ? `${ayahEnd - ayahStart + 1} ayahs` : `${surahEnd - surahStart + 1} surahs`})`
+                    )}
+                  </button>
+                </div>
+
+                {/* Step 4: Recording */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">Step 4: Record Yourself</div>
+                  
+                  {/* Warning for file:// protocol */}
+                  {typeof window !== 'undefined' && window.location.protocol === 'file:' && (
+                    <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-2 mb-3 text-xs">
+                      <p className="text-yellow-800 font-medium">⚠️ Recording may not work on local files</p>
+                      <p className="text-yellow-700 mt-1">For microphone access, host this file on a web server with HTTPS, or use on desktop browser.</p>
+                    </div>
+                  )}
+                  
+                  {/* Microphone Selector */}
+                  <div className="mb-3">
+                    <label className="text-amber-700 text-xs block mb-1">🎤 Microphone:</label>
+                    <select 
+                      value={selectedMic}
+                      onChange={(e) => setSelectedMic(e.target.value)}
+                      className="w-full bg-amber-50 border border-amber-300 rounded-lg p-2 text-stone-800 text-sm"
+                    >
+                      {audioDevices.length === 0 && (
+                        <option value="" className="bg-amber-50 text-stone-800">Default microphone (click Record to see all)</option>
+                      )}
+                      {audioDevices.map((device, i) => (
+                        <option key={device.deviceId} value={device.deviceId} className="bg-amber-50 text-stone-800">
+                          {device.label || `Microphone ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Audio Level Meter */}
+                  <div className="mb-2">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-amber-800/50 text-xs">Input Level:</span>
+                      <span className="text-xs" style={{ color: audioLevel > 0.5 ? '#4ade80' : audioLevel > 0.1 ? '#fbbf24' : '#ef4444' }}>
+                        {audioLevel > 0.5 ? '🟢 Good' : audioLevel > 0.1 ? '🟡 Low' : '🔴 None'}
+                      </span>
+                    </div>
+                    <div className="h-4 bg-amber-100 border border-amber-300 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-emerald-400 via-yellow-400 to-red-500 transition-all duration-75"
+                        style={{ width: `${Math.min(100, audioLevel * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Record Button */}
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`w-full py-8 rounded-xl font-bold text-xl text-white transition-all ${
+                      isRecording ? 'bg-red-500 animate-pulse' : 'bg-amber-600 hover:bg-amber-500'
+                    }`}
+                  >
+                    {isRecording ? `⏹️ Stop (${formatTime(recordingTime)})` : '🎙️ Record Your Recitation'}
+                  </button>
+                  
+                  {isRecording && (
+                    <p className="text-amber-700 text-xs text-center mt-2">
+                      🔴 Recording... Speak into your microphone
+                    </p>
+                  )}
+                  
+                  {lastRecordingSaved && !isRecording && (
+                    <div className="mt-3 p-3 bg-green-500/30 rounded-lg text-center">
+                      <p className="text-green-200 text-sm font-bold">✅ Recording Saved!</p>
+                      <p className="text-green-300/70 text-xs mt-1">Play it back in "Your Recordings" →</p>
+                    </div>
+                  )}
+                  
+                  {!isRecording && !lastRecordingSaved && (
+                    <p className="text-amber-800/50 text-xs text-center mt-2">
+                      💡 Record at your own pace — stop wherever feels natural
+                    </p>
+                  )}
+                </div>
+
+                {/* Step 5: Self-Assessment Checklist */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">Step 5: Self-Assess</div>
+                  
+                  <button 
+                    onClick={() => setShowChecklist(!showChecklist)}
+                    disabled={!extractedRules?.rules?.length}
+                    className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-400 rounded-lg text-white text-base font-bold"
+                  >
+                    {showChecklist ? '✓ Checklist Open (see right panel →)' : '🎯 Show Tajweed Checklist'}
+                  </button>
+                  
+                  {!extractedRules?.rules?.length && (
+                    <p className="text-amber-700 text-xs text-center mt-2">Load tajweed rules first (Step 2)</p>
+                  )}
+                  
+                  {extractedRules?.rules?.length > 0 && !showChecklist && (
+                    <p className="text-amber-800/50 text-xs text-center mt-2">
+                      Play your recording and check each rule
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT: Feedback & Recordings */}
+              <div className="lg:col-span-4 space-y-3">
+                {/* Error */}
+                {error && (
+                  <div className="bg-red-100 border border-red-300 rounded-xl p-3">
+                    <p className="text-red-700 text-sm">⚠️ {error}</p>
+                    <button onClick={() => setError(null)} className="text-red-600 text-xs underline mt-1">Dismiss</button>
+                  </div>
+                )}
+
+                {/* Tajweed Checklist */}
+                {showChecklist && extractedRules?.rules?.length > 0 && (
+                  <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-800 text-base font-bold">🎯 Self-Assessment Checklist</span>
+                      <button 
+                        onClick={() => setShowChecklist(false)}
+                        className="text-amber-800/50 text-xs hover:text-stone-800"
+                      >✕ Close</button>
+                    </div>
+                    
+                    <p className="text-amber-800/50 text-xs">Play your recording and verify each rule:</p>
+                    
+                    {/* Rules Checklist */}
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {generateChecklist().map((item, i) => (
+                        <div key={i} className="rounded-lg p-3 bg-white/5 border-l-4" style={{ borderColor: item.color }}>
+                          {/* Rule header */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <div 
+                              className="w-4 h-4 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span className="text-stone-800 font-bold">{item.arabic_rule}</span>
+                            {item.counts && item.counts !== '-' && (
+                              <span className="text-amber-700 text-xs">({item.counts} counts)</span>
+                            )}
+                          </div>
+                          
+                          {/* Instances in this passage */}
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {item.instances.slice(0, 5).map((text, j) => (
+                              <span key={j} className="bg-white/70 px-2 py-0.5 rounded text-stone-800 font-arabic text-sm">
+                                {text}
+                              </span>
+                            ))}
+                            {item.instances.length > 5 && (
+                              <span className="text-stone-800/40 text-xs">+{item.instances.length - 5} more</span>
+                            )}
+                          </div>
+                          
+                          {/* Check question */}
+                          <p className="text-amber-600 text-xs mb-1">
+                            <span className="text-amber-600">✓ Check:</span> {item.check}
+                          </p>
+                          
+                          {/* What to listen for */}
+                          <p className="text-amber-600 text-xs mb-1">
+                            <span className="text-amber-600">👂 Listen for:</span> {item.listen_for}
+                          </p>
+                          
+                          {/* Common mistake */}
+                          <p className="text-red-600 text-xs">
+                            <span className="text-red-600 font-medium">⚠ Avoid:</span> {item.common_mistake}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Summary */}
+                    <div className="bg-amber-500/20 rounded-lg p-2 text-center">
+                      <p className="text-amber-600 text-xs">
+                        {generateChecklist().length} rule types • {extractedRules.rules.length} total instances
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recordings */}
+                {userRecordings.length > 0 && (
+                  <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                    <div className="text-amber-800 text-base font-bold mb-2">🎧 Your Recordings ({userRecordings.length})</div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {userRecordings.slice().reverse().map((r, i) => {
+                        const actualIndex = userRecordings.length - 1 - i;
+                        const isPlaying = isPlayingUserRecording === actualIndex;
+                        return (
+                          <div
+                            key={r.time}
+                            className={`flex items-center gap-2 rounded-lg p-2 ${isPlaying ? 'bg-amber-500/30' : 'bg-white/70'}`}
+                          >
+                            <button
+                              onClick={() => isPlaying ? stopUserRecording() : playUserRecording(r.url, actualIndex)}
+                              className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${
+                                isPlaying ? 'bg-orange-500 text-stone-800' : 'bg-amber-500 text-white'
+                              }`}
+                            >
+                              {isPlaying ? '⏹️' : '▶️'}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-stone-800 text-sm truncate">
+                                {r.surahStart === r.surahEnd 
+                                  ? `${SURAH_DATA[r.surahStart]?.arabic} ${r.surahStart}:${r.ayahStart === r.ayahEnd ? r.ayahStart : `${r.ayahStart}-${r.ayahEnd}`}`
+                                  : `${SURAH_DATA[r.surahStart]?.arabic} → ${SURAH_DATA[r.surahEnd]?.arabic}`
+                                }
+                              </div>
+                              <div className="text-stone-800/40 text-xs">
+                                {new Date(r.time).toLocaleTimeString()}
+                              </div>
+                            </div>
+                            {isPlaying && (
+                              <div className="text-amber-700 text-xs animate-pulse">Playing...</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tips */}
+                <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-amber-800 text-base font-bold mb-2">📝 How It Works:</div>
+                  <ul className="text-stone-800/60 text-xs space-y-1">
+                    <li>1. Load tajweed rules (from Quran.com)</li>
+                    <li>2. Listen to reference at slow speed</li>
+                    <li>3. Record yourself reciting</li>
+                    <li>4. Show the checklist</li>
+                    <li>5. Play your recording & verify each rule</li>
+                  </ul>
+                  <div className="mt-2 pt-2 border-t border-amber-200">
+                    <p className="text-amber-700 text-xs">✨ 100% free — no API key needed!</p>
+                  </div>
+                </div>
+
+                {/* Session Progress */}
+                {sessionHistory.length > 0 && (
+                  <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3">
+                    <div className="text-amber-800 text-base font-bold mb-2">Progress</div>
+                    <div className="flex flex-wrap gap-1">
+                      {sessionHistory.slice(-15).map((s, i) => (
+                        <div 
+                          key={i}
+                          className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${
+                            s.score >= 8 ? 'bg-green-500 text-white' :
+                            s.score >= 5 ? 'bg-yellow-500 text-white' : 
+                            'bg-red-500 text-white'
+                          }`}
+                        >
+                          {s.score}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<TajweedTrainer />, document.getElementById('root'));
+  </script>
+</body>
+</html>
