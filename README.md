@@ -9,26 +9,40 @@ A free, browser-based Quran recitation practice tool with Al-Azhar Mushaf color-
 - 🎙️ **Record Yourself** - Practice and compare your recitation
 - 📊 **Audio Analysis** - Visual waveform comparison & timing feedback
 - ⭐ **Self-Rating** - Track your progress on each rule
-- ✅ **Self-Assessment Checklist** - Rule-by-rule verification
-- 💾 **Auto-Save** - Recordings & progress saved locally
+- ⬇️ **Download Audio** - Download reference & your recordings with proper ID3 tags
+- 💾 **Auto-Save** - Recordings, progress & settings saved locally
 - 📱 **Mobile Friendly** - Works on phones and tablets
 
-## New! Analysis Features
+## Analysis Features
 
 ### Timing Analysis
 - Compare your recording duration to the reference
 - Get feedback if you're rushing or at good pace
 - Helps ensure proper Madd (elongation) lengths
 
-### Waveform Comparison
-- See visual representation of both recordings
-- Identify where elongations should occur
-- Compare your patterns to the reference
+### Waveform Visualization
+- See visual representation of your recording
+- Identify elongations and pauses
+- Compare patterns to improve
 
 ### Guided Self-Assessment
 - Rate yourself 1-5 stars on each rule
 - Scores are saved for progress tracking
 - Focus on your weakest areas
+
+## Download Features
+
+### Reference Audio
+- Download reciter audio for offline practice
+- ID3 tags included (title, artist, track number)
+- Sequential numbering for proper sorting
+
+### Your Recordings
+- Download your practice recordings
+- WebM format (convert to MP3 with cloudconvert.com or VLC)
+
+### MP3 Player Tip
+If files play in wrong order on cheap MP3 players, use **DriveSort** (free Windows tool) to fix FAT filesystem order: http://www.anerty.net/software/file/DriveSort/
 
 ## Color Legend
 
@@ -50,7 +64,8 @@ A free, browser-based Quran recitation practice tool with Al-Azhar Mushaf color-
 3. Listen to reference recitation
 4. Record yourself
 5. Click 📊 to analyze your recording
-6. Compare waveforms & rate yourself on each rule
+6. Rate yourself on each rule
+7. Download audio for offline practice
 
 ## Data Storage
 
