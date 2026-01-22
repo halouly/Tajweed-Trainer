@@ -8,6 +8,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ID3 tag writer for MP3 metadata -->
+  <script src="https://cdn.jsdelivr.net/npm/browser-id3-writer@4.4.0/dist/browser-id3-writer.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap');
     .font-arabic { font-family: 'Amiri', serif; }
@@ -1751,18 +1753,105 @@
                     </div>
                   )}
                   
-                  <button
-                    onClick={isPlayingReference ? stopReference : () => playReference()}
-                    className={`w-full py-4 rounded-xl font-bold text-white text-lg transition-all active:scale-98 ${
-                      isPlayingReference ? 'bg-orange-500 active:bg-orange-600' : 'bg-amber-600 hover:bg-amber-500 active:bg-amber-700'
-                    }`}
-                  >
-                    {isPlayingReference ? '⏹️ Stop' : (
-                      surahStart === surahEnd && ayahStart === ayahEnd 
-                        ? '▶️ Listen' 
-                        : `▶️ Listen (${surahStart === surahEnd ? `${ayahEnd - ayahStart + 1} ayahs` : `${surahEnd - surahStart + 1} surahs`})`
-                    )}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={isPlayingReference ? stopReference : () => playReference()}
+                      className={`flex-1 py-4 rounded-xl font-bold text-white text-lg transition-all active:scale-98 ${
+                        isPlayingReference ? 'bg-orange-500 active:bg-orange-600' : 'bg-amber-600 hover:bg-amber-500 active:bg-amber-700'
+                      }`}
+                    >
+                      {isPlayingReference ? '⏹️ Stop' : (
+                        surahStart === surahEnd && ayahStart === ayahEnd 
+                          ? '▶️ Listen' 
+                          : `▶️ Listen (${surahStart === surahEnd ? `${ayahEnd - ayahStart + 1} ayahs` : `${surahEnd - surahStart + 1} surahs`})`
+                      )}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        // Download reference audio(s) with proper ID3 tags
+                        setError(null);
+                        const downloads = [];
+                        
+                        for (let s = surahStart; s <= surahEnd; s++) {
+                          const startA = s === surahStart ? ayahStart : 1;
+                          const endA = s === surahEnd ? ayahEnd : SURAH_DATA[s]?.ayahs;
+                          for (let a = startA; a <= endA; a++) {
+                            downloads.push({ surah: s, ayah: a });
+                          }
+                        }
+                        
+                        // Limit to 20 files at once
+                        if (downloads.length > 20) {
+                          setError(`Too many files (${downloads.length}). Please select 20 or fewer ayahs.`);
+                          return;
+                        }
+                        
+                        // Show progress
+                        setError(`Downloading ${downloads.length} file(s) with ID3 tags...`);
+                        
+                        let trackNum = 1;
+                        const totalTracks = downloads.length;
+                        
+                        for (const { surah, ayah } of downloads) {
+                          try {
+                            const url = getReferenceAudioUrl(surah, ayah);
+                            const response = await fetch(url);
+                            const arrayBuffer = await response.arrayBuffer();
+                            
+                            // Add ID3 tags
+                            const surahName = SURAH_DATA[surah]?.name || `Surah ${surah}`;
+                            const surahArabic = SURAH_DATA[surah]?.arabic || '';
+                            const reciterName = {
+                              'yasser_dosari': 'Yasser Al-Dosari',
+                              'mishary_alafasy': 'Mishary Alafasy', 
+                              'husary': 'Mahmoud Khalil Al-Husary',
+                              'minshawi': 'Mohamed Siddiq El-Minshawi'
+                            }[reciter] || reciter;
+                            
+                            // Simple sequential number for filename: 001, 002, 003...
+                            const seqNum = String(trackNum).padStart(3,'0');
+                            
+                            const writer = new ID3Writer(arrayBuffer);
+                            writer
+                              .setFrame('TIT2', `${surahName} ${surah}:${ayah}`)      // Title
+                              .setFrame('TPE1', [reciterName])                         // Artist
+                              .setFrame('TALB', `Quran`)                               // Album
+                              .setFrame('TRCK', `${trackNum}/${totalTracks}`)          // Track X of Y
+                              .setFrame('TCON', ['Religious'])                         // Genre
+                            writer.addTag();
+                            
+                            const taggedBlob = writer.getBlob();
+                            const blobUrl = URL.createObjectURL(taggedBlob);
+                            
+                            const link = document.createElement('a');
+                            link.href = blobUrl;
+                            // Simple format: 001-_SurahName_1-1_-.mp3
+                            link.download = `${seqNum}-_${surahName}_${surah}-${ayah}_-.mp3`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            
+                            URL.revokeObjectURL(blobUrl);
+                            trackNum++;
+                            
+                            // Update progress
+                            setError(`Downloading... ${trackNum - 1}/${totalTracks}`);
+                            
+                            // Small delay between downloads
+                            await new Promise(r => setTimeout(r, 300));
+                          } catch (err) {
+                            console.error(`Failed to download ${surah}:${ayah}`, err);
+                          }
+                        }
+                        
+                        setError(null);
+                      }}
+                      className="py-4 px-4 rounded-xl font-bold text-white text-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700"
+                      title="Download reference audio with ID3 tags"
+                    >
+                      ⬇️
+                    </button>
+                  </div>
                 </div>
 
                 {/* Step 4: Recording */}
@@ -2176,7 +2265,10 @@
                         className="text-red-500 text-xs hover:text-red-700"
                       >🗑️ Clear All</button>
                     </div>
-                    <p className="text-amber-700 text-xs mb-2">💾 Auto-saved to this device</p>
+                    <p className="text-amber-700 text-xs mb-1">💾 Auto-saved • Format: WebM</p>
+                    <p className="text-amber-600/70 text-xs mb-2">
+                      💡 Convert to MP3: use <a href="https://cloudconvert.com/webm-to-mp3" target="_blank" className="underline">cloudconvert.com</a> or VLC
+                    </p>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {userRecordings.slice().reverse().map((r, i) => {
                         const actualIndex = userRecordings.length - 1 - i;
@@ -2216,6 +2308,27 @@
                               className="bg-cyan-500 hover:bg-cyan-600 text-white text-xs px-2 py-1 rounded"
                               title="Analyze"
                             >📊</button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Download recording
+                                const link = document.createElement('a');
+                                link.href = r.dataUrl || r.url;
+                                const surahPad = String(r.surahStart).padStart(3,'0');
+                                const ayahStartPad = String(r.ayahStart).padStart(4,'0');
+                                const ayahEndPad = String(r.ayahEnd).padStart(4,'0');
+                                const sortableNum = r.ayahStart === r.ayahEnd 
+                                  ? `${surahPad}${ayahStartPad}`
+                                  : `${surahPad}${ayahStartPad}-${surahPad}${ayahEndPad}`;
+                                const surahName = SURAH_DATA[r.surahStart]?.name || 'Surah';
+                                link.download = `${sortableNum}-_${surahName}_-.webm`;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs px-2 py-1 rounded"
+                              title="Download"
+                            >⬇️</button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
